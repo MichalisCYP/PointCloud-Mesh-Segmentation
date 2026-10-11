@@ -1,9 +1,9 @@
 # PointCloud-Mesh-Segmentation
 
-Semantic segmentation of cultural heritage buildings: point clouds and meshes.
+Semantic segmentation of cultural heritage buildings (point clouds and meshes) with
+Point Transformer V3 + Sonata, set up to run on a single RTX 2080 (8 GB).
 
-- [docs/PLAN.md](docs/PLAN.md) — what to run (start here)
-- [docs/RESEARCH.md](docs/RESEARCH.md) — full survey of libraries and methods
-- `scripts/` — `prepare_pointcloud.py`, `mesh_to_pointcloud.py`, `labels_to_mesh.py`
+- **[docs/PLAN.md](docs/PLAN.md) — step-by-step: install, prepare data, train, predict**
+- [docs/RESEARCH.md](docs/RESEARCH.md) — survey of libraries and methods
 
-Requirements for the scripts: `pip install numpy scipy trimesh plyfile laspy[lazrs]`
+Quick start: `bash envs/setup_2080.sh`, then follow the plan.
