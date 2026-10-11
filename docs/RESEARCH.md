@@ -12,7 +12,7 @@ _Last updated: 2026-10. Things change quickly in this field. Check each repo's R
 | Learned semantic segmentation of scenes (indoor / outdoor) | **Pointcept** → PTv3 / **Sonata** / Concerto | Open3D-ML (RandLA-Net, KPConv), MMDetection3D |
 | 3D instance segmentation (scenes) | **OneFormer3D** / **Mask3D** | Pointcept (PTv3 + PointGroup), SPFormer |
 | Zero-shot / promptable point cloud segmentation | **SAM2Point**, **Point-SAM** | SAI3D, Segment3D |
-| Open-vocabulary (text-queried) scene segmentation | **Open3DIS**, **OpenMask3D** | OpenIns3D |
+| Open-vocabulary (text-queried) scene segmentation | **SAM 3** on rendered views, voted back to 3D (used in this repo) | Open3DIS, OpenMask3D, OpenIns3D |
 | Mesh / object **part** segmentation (class-agnostic) | **PartField** (NVIDIA), **P3-SAM** (Tencent Hunyuan3D-Part) | SAMPart3D, SAMesh, PartSAM |
 | Mesh/point learning on arbitrary surfaces | **DiffusionNet** | MeshCNN (older) |
 | Visualization | **Polyscope**, Open3D viewer, **rerun** | CloudCompare, MeshLab |
@@ -80,6 +80,8 @@ These methods need **no labeled training data**. They lift 2D foundation models 
 | **OpenMask3D** (NeurIPS'23) | Point cloud + posed RGB-D | Mask3D proposals plus CLIP features fused across views → text-queryable instances | [github.com/OpenMask3D/openmask3d](https://github.com/OpenMask3D/openmask3d) |
 | **Open3DIS** (CVPR'24) | Point cloud + posed RGB-D | Adds 2D-mask-guided proposals. The authors report about 1.5× OpenMask3D's AP on ScanNet200 | [paper](https://arxiv.org/abs/2312.10671) |
 | OpenIns3D, SAI3D, Segment3D | Variants | Variants of the same approach (some need no images) | GitHub |
+
+**SAM 3** ([github.com/facebookresearch/sam3](https://github.com/facebookresearch/sam3), Nov 2025) segments every instance of a text concept in an image. Rendering a scan from many views and voting SAM 3 masks back through a z-buffer gives open-vocabulary 3D segmentation with no training. This is the default pipeline here (`scripts/zero_shot_segment.py`).
 
 **Caveat:** most open-vocabulary scene methods need **posed RGB(-D) images** alongside the point cloud. SAM2Point and Point-SAM work on points alone.
 

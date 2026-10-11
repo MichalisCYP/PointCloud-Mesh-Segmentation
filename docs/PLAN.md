@@ -1,103 +1,93 @@
-# Plan — Heritage Building Segmentation on an RTX 2080 (8 GB)
+# Plan — Heritage Building Segmentation, No Training
 
-**Model:** Point Transformer V3 with **Sonata** pre-trained weights (Pointcept), fine-tuned on your labels.
-**Classes:** ArCH heritage taxonomy — arch, column, moldings, floor, door/window, wall, stairs, vault, roof, other.
-**Point clouds** go straight into the model. **Meshes** are sampled into points, segmented, and the labels voted back onto the faces.
+Runs on your GPU PC (RTX 2080, 8 GB). **No training and no labelled data needed.**
 
-Survey and alternatives: [RESEARCH.md](RESEARCH.md).
+## How it works
+1. Render your point cloud or mesh from many virtual cameras (outside orbit and/or inside the building).
+2. **SAM 3** (Meta, 2025) finds each class in every render from a text prompt: "arch", "column", "molding", "vaulted ceiling", …
+3. Vote each 2D mask back onto the 3D points it shows, keeping the best class per point.
+4. Points that are never visible copy the label of their nearest neighbour. Meshes get per-face labels by voting.
+
+**Default classes** use the ArCH heritage taxonomy (label IDs 0–9): arch, column, moldings, floor, door/window, wall, stairs, vault, roof, other. You can change them; see below.
 
 ---
 
-## Step 1 — Install (once, ~30 min)
+## Step 1 — Install (once, on the GPU PC)
+
+1. **Get access to the SAM 3 weights.** Request access at <https://huggingface.co/facebook/sam3> and wait for approval. Then create a read token on Hugging Face and run `hf auth login` (or `huggingface-cli login`).
+2. **Run the setup:**
+   ```bash
+   git clone https://github.com/michaliscyp/pointcloud-mesh-segmentation.git
+   cd pointcloud-mesh-segmentation
+   bash envs/setup_zero_shot.sh
+   conda activate heritage-sam3
+   ```
+
+The setup ends with a smoke test that should print the peak VRAM and `OK`.
+
+Requirements: Linux or **WSL2 on Windows**, NVIDIA driver ≥ 570, conda.
+
+## Step 2 — Run
 
 ```bash
-bash envs/setup_2080.sh            # creates conda env "pointcept-2080", clones Pointcept next to this repo
-conda activate pointcept-2080
-cd ../Pointcept
+# Exterior of a building (point cloud: .ply / .las / .laz / .txt)
+python scripts/zero_shot_segment.py church.las out/church --views orbit --save-views
+
+# Interior scan: cameras stand inside and look around and up at the vaults
+python scripts/zero_shot_segment.py nave.ply out/nave --views inside --save-views
+
+# Both
+python scripts/zero_shot_segment.py chapel.laz out/chapel --views both
+
+# Textured mesh (photogrammetry exports are usually Y-up)
+python scripts/zero_shot_segment.py facade.obj out/facade --up y --save-views
 ```
-The script does the following:
-- Installs PyTorch 2.5 + CUDA 12.4 (supports the 2080) and **skips FlashAttention**, which doesn't support RTX 20xx.
-- Builds the CUDA ops for sm_75.
-- Downloads the Sonata weights.
-- Links `configs/heritage` and `data/heritage` from this repo.
-- Finishes with a **GPU smoke test** that should print `OK` and the peak VRAM.
 
-If the smoke test runs out of memory, retry it with `--points 50000`, then set the same number as `point_max` in the configs.
+**Outputs** in `out/<name>/`:
 
-Requirements: Linux or WSL2, NVIDIA driver ≥ 550, conda.
-
-## Step 2 — Prepare data
-
-Run from the **repo** folder (same env). Each command writes `data/heritage/<split>/`.
-
-```bash
-# Labelled point clouds  -> train (most) and val (1–2 buildings you never train on)
-python scripts/prepare_pointcloud.py church.las   data/heritage/train --label-field classification --tile 10
-python scripts/prepare_pointcloud.py cloister.ply data/heritage/val   --label-field scalar_label  --tile 10
-
-# ArCH benchmark scenes (download from archdataset.polito.it) -> train
-python scripts/prepare_pointcloud.py ArCH_scene.txt data/heritage/train --txt-cols x,y,z,r,g,b,label --tile 10
-
-# Unlabelled point clouds and meshes to segment -> test
-python scripts/prepare_pointcloud.py chapel.laz  data/heritage/test --tile 10
-python scripts/mesh_to_pointcloud.py facade.obj  data/heritage/test --points 3000000 --tile 10
-```
-- **Labels must use the 10 ArCH class IDs (0–9).** Use `-1` for unlabelled points. Remap your IDs first if they differ.
-- `--tile 10` splits buildings into 10 m tiles (plus a 2 m context border) so they fit in 8 GB.
-- `--voxel 0.01` thins very dense TLS scans. The model works at 2 cm anyway.
-- Normals are computed automatically when missing. Colour is strongly recommended; missing colour is filled with zeros.
-- Check `--txt-cols` against ArCH's actual column order before converting.
-
-## Step 3 — Train (in `../Pointcept`)
-
-```bash
-# A) Decoder probing: Sonata encoder frozen, fits comfortably in 8 GB. Start here.
-sh scripts/train.sh -g 1 -d heritage -c semseg-sonata-heritage-dec -n dec \
-   -w weights/sonata/pretrain-sonata-v1m1-0-base.pth
-
-# B) Full fine-tuning: better accuracy, tight on 8 GB (40k-point crops). Try after A works.
-sh scripts/train.sh -g 1 -d heritage -c semseg-sonata-heritage-ft -n ft \
-   -w weights/sonata/pretrain-sonata-v1m1-0-base.pth
-```
-- Validation mIoU is logged every `eval_epoch`, and the best model is saved to `exp/heritage/<name>/model/model_best.pth`.
-- **If you run out of memory:** lower `point_max` in the config's `SphereCrop` (80000 → 50000 for dec; 40000 → 25000 for ft).
-- **Training time:** with a few hundred tiles, expect roughly a day for A on a 2080. Lower `epoch` for a quick first run.
-
-## Step 4 — Predict
-
-```bash
-# in ../Pointcept: runs on data/heritage/test, writes exp/heritage/dec/result/<tile>_pred.npy
-sh scripts/test.sh -g 1 -d heritage -n dec -w model_best
-
-# back in the repo: stitch tiles into one prediction per building
-python scripts/merge_tiles.py data/heritage/test ../Pointcept/exp/heritage/dec/result
-#   -> ../Pointcept/exp/heritage/dec/result/merged/<scene>_pred.npy  (one label per prepared point)
-
-# meshes: put labels back on the faces -> coloured .ply with a per-face "label"
-python scripts/labels_to_mesh.py facade.obj data/heritage/meta/facade/face_index.npy \
-       ../Pointcept/exp/heritage/dec/result/merged/facade_pred.npy facade_segmented.ply
-```
-Open the results in CloudCompare or MeshLab.
-
-## Step 5 — Improve (optional)
-
-| If… | Do |
+| File | Content |
 |---|---|
-| A works and you have time | Run B (full fine-tune) and compare val mIoU |
-| Too few labelled buildings | Pre-train on ArCH first, then fine-tune on yours (`-w` = the ArCH-trained `model_best.pth`) |
-| Need more labels quickly | Predict, fix the mistakes in CloudCompare, add the result to `train/`, retrain |
-| Want to split one element into parts without labels (e.g. a capital) | [PartField](https://research.nvidia.com/labs/toronto-ai/partfield-release) on the cropped mesh |
-| Get access to a bigger GPU | Same configs; raise `batch_size` and `point_max` |
+| `points_labelled.ply` | Points coloured by class, plus a `label` field. Open in CloudCompare. |
+| `mesh_labelled.ply` | Meshes only: faces coloured by class, with a per-face `label`. Open in MeshLab or CloudCompare. |
+| `labels.npy` | One label per point |
+| `classes.json` | Label ID → class name |
+| `views/` | Renders and label overlays (with `--save-views`) |
 
----
+**Tip:** run once with `--render-only` first. It is fast and doesn't need SAM 3. Look at `views/` and check that the building is in frame, upright, and dense enough. If it looks upside down or sideways, add `--up y`.
 
-### Files in this repo
+## Step 3 — Tune (no training, just settings)
+
+| Problem | Fix |
+|---|---|
+| Elements missed | Lower `--threshold` (0.4 → 0.3). Add prompt synonyms in a classes file. |
+| False detections | Raise `--threshold` (→ 0.5) |
+| Walls swallowing columns or moldings | Lower the `weight` of "wall" in the classes file |
+| Parts never seen (courtyards, behind columns) | `--views both`, more `--azimuths` (e.g. 16) |
+| Gaps and holes in the renders | The scan is sparse for the image size. Lower `--size` (e.g. 768) so the points cover the pixels. |
+| Out of GPU memory | `--size 768`. Lower `--max-points`. |
+| Slow | Fewer `--azimuths`. The run time is mostly SAM 3 (views × prompts). |
+
+**Custom classes:** write a JSON file and pass `--classes my_classes.json`. Order defines the label IDs. A class with an empty prompt list is the fallback for "seen but nothing matched".
+```json
+[
+  {"name": "column",  "prompts": ["column", "pillar", "pilaster"], "weight": 1.0},
+  {"name": "capital", "prompts": ["column capital"],                "weight": 1.2},
+  {"name": "window",  "prompts": ["window", "stained glass window"], "weight": 1.0},
+  {"name": "wall",    "prompts": ["stone wall"],                    "weight": 0.6},
+  {"name": "other",   "prompts": [],                                "weight": 1.0}
+]
+```
+
+## What to expect
+- **Strongest:** clearly visible elements with colour, such as columns, arches, windows/doors, roofs, floors, and stairs.
+- **Weaker:** subtle geometry such as thin mouldings, and points that are hard to see from any camera.
+- **Colour matters:** scans without RGB render grey, and SAM 3 does much worse on them.
+- **For publishable accuracy:** if zero-shot isn't good enough, the training route (fine-tuning Point Transformer V3 + Sonata) is documented in [TRAINING.md](TRAINING.md). The zero-shot labels can be corrected in CloudCompare and used as its training data.
+
+## Files
 | Path | Purpose |
 |---|---|
-| `envs/setup_2080.sh` | Environment + weights + smoke test |
-| `pointcept_configs/heritage/semseg-sonata-heritage-{dec,ft}.py` | 2080-tuned Pointcept configs (no flash attention, fp16, batch 2) |
-| `scripts/prepare_pointcloud.py` | PLY/LAS/LAZ/TXT → Pointcept format (normals, tiling) |
-| `scripts/mesh_to_pointcloud.py` | Mesh → sampled points (+ texture colour, face index) |
-| `scripts/merge_tiles.py` | Tile predictions → one prediction per building |
-| `scripts/labels_to_mesh.py` | Point predictions → per-face mesh labels |
-| `scripts/gpu_smoke_test.py` | One training step on random data, reports peak VRAM |
+| `envs/setup_zero_shot.sh` | Conda env + SAM 3 + smoke test |
+| `scripts/zero_shot_segment.py` | The whole no-training pipeline |
+| `scripts/labels_to_mesh.py` | Point labels → mesh face labels (used internally, also standalone) |
+| `docs/TRAINING.md`, `envs/setup_2080.sh`, `pointcept_configs/` | Optional training route |
