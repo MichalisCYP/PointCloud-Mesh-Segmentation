@@ -14,7 +14,9 @@ The full survey is in [RESEARCH.md](RESEARCH.md).
 
 ## Track A — Point cloud segmentation
 
-1. **Install** [Pointcept](https://github.com/Pointcept/Pointcept). On the RTX 5060 you need PyTorch ≥ 2.7 built with CUDA 12.8. If `spconv` / `flash-attn` won't install, compile them with `TORCH_CUDA_ARCH_LIST="12.0"`, or set `enable_flash=False`.
+1. **Install** [Pointcept](https://github.com/Pointcept/Pointcept).
+   - **RTX 2080 (Turing):** Sonata's stock env (CUDA 12.4 / PyTorch 2.5) works, and prebuilt `spconv` wheels cover it. FlashAttention doesn't support Turing, so skip installing it and set `enable_flash=False` in the model config. Turing has no bf16, so use fp16 AMP.
+   - **RTX 5060 (Blackwell):** needs PyTorch ≥ 2.7 built with CUDA 12.8. If `spconv` / `flash-attn` won't install, compile them with `TORCH_CUDA_ARCH_LIST="12.0"`, or set `enable_flash=False`.
 2. **Convert** each scan:
    ```
    python scripts/prepare_pointcloud.py scan.las data/heritage/train/scan01 --label-field classification
