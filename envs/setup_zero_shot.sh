@@ -39,4 +39,4 @@ print(f"peak VRAM {torch.cuda.max_memory_allocated() / 2**30:.2f} GB of "
 print("OK")
 PY
 echo
-echo "Done. Next:  conda activate $ENV  &&  python scripts/zero_shot_segment.py <your scan> out/<name>"
+echo "Done. Now run:  ./segment.sh <file or folder>"

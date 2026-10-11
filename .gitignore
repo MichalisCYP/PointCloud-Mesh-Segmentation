@@ -2,3 +2,4 @@ data/
 exp/
 weights/
 __pycache__/
+results/
