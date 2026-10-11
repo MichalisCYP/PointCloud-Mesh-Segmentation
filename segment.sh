@@ -9,17 +9,18 @@ REPO="$(cd "$(dirname "$0")" && pwd)"
 CONDA=$(command -v mamba || command -v conda)
 IN="$1"; shift
 
-if [ -d "$IN" ]; then
-  FILES=$(find "$IN" -maxdepth 1 -type f \( -iname '*.ply' -o -iname '*.las' -o -iname '*.laz' \
-          -o -iname '*.txt' -o -iname '*.obj' -o -iname '*.glb' \) | sort)
-else
-  FILES="$IN"
-fi
-
-for f in $FILES; do
-  name=$(basename "${f%.*}")
+run_one() {
+  name=$(basename "${1%.*}")
   echo "=== $name ==="
   $CONDA run -n heritage-sam3 --no-capture-output \
-    python "$REPO/scripts/zero_shot_segment.py" "$f" "$REPO/results/$name" --views both --save-views "$@"
-done
+    python "$REPO/scripts/zero_shot_segment.py" "$1" "$REPO/results/$name" --views both --save-views "${@:2}"
+}
+
+if [ -d "$IN" ]; then
+  find "$IN" -maxdepth 1 -type f \( -iname '*.ply' -o -iname '*.las' -o -iname '*.laz' \
+       -o -iname '*.txt' -o -iname '*.obj' -o -iname '*.glb' \) -print0 | sort -z |
+  while IFS= read -r -d '' f; do run_one "$f" "$@"; done
+else
+  run_one "$IN" "$@"
+fi
 echo "Done. Open results/<name>/points_labelled.ply (and mesh_labelled.ply for meshes)."
