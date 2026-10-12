@@ -3,3 +3,5 @@ exp/
 weights/
 __pycache__/
 results/
+.venv/
+*.converted.glb

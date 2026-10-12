@@ -27,6 +27,7 @@ Outputs (in the output folder):
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 import numpy as np
@@ -65,6 +66,8 @@ def load_input(path, up, max_points, mesh_points):
     else:
         import trimesh
 
+        if ext in BLENDER_FORMATS:
+            path = convert_with_blender(path)
         mesh = trimesh.load(path, force="mesh", process=False)
         try:
             xyz, face_index, rgb = trimesh.sample.sample_surface(mesh, mesh_points, sample_color=True)
@@ -81,6 +84,39 @@ def load_input(path, up, max_points, mesh_points):
 def to_z_up(xyz, up):
     """Rendering assumes Z-up; outputs keep the original coordinates."""
     return np.stack([xyz[:, 0], -xyz[:, 2], xyz[:, 1]], 1) if up == "y" else xyz
+
+
+BLENDER_FORMATS = {".fbx", ".dae", ".usd", ".usda", ".usdc", ".usdz", ".abc"}
+
+
+def find_blender():
+    import glob
+    import os
+    import shutil
+
+    cands = [os.environ.get("BLENDER"), shutil.which("blender")]
+    cands += sorted(glob.glob(r"C:\Program Files\Blender Foundation\Blender *\blender.exe"),
+                    key=lambda p: [int(x) for x in re.findall(r"\d+", Path(p).parent.name)], reverse=True)
+    cands += ["/usr/bin/blender", "/snap/bin/blender", "/Applications/Blender.app/Contents/MacOS/Blender"]
+    for c in cands:
+        if c and Path(c).exists():
+            return c
+    raise SystemExit("FBX needs Blender: install it or set the BLENDER environment variable to blender.exe")
+
+
+def convert_with_blender(path):
+    """FBX & co. -> cached Z-up GLB next to the input (reused if newer than the source)."""
+    import subprocess
+
+    out = path.with_name(path.stem + ".converted.glb")
+    if out.exists() and out.stat().st_mtime >= path.stat().st_mtime:
+        print(f"using cached conversion {out.name}")
+        return out
+    print(f"converting {path.name} -> {out.name} with Blender ...")
+    script = Path(__file__).with_name("blender_convert.py")
+    subprocess.run([find_blender(), "-b", "--factory-startup", "--python", str(script), "--",
+                    str(path.resolve()), str(out.resolve())], check=True)
+    return out
 
 
 def _ply_has_faces(path):
